@@ -17,14 +17,29 @@ sock = Sock(app)
 logging.basicConfig(level=logging.INFO)
 MODEL = os.getenv('GROQ_MODEL', 'qwen/qwen3.8-27b')
 MAX_IMAGE_SIDE = int(os.getenv('MAX_IMAGE_SIDE', '1024'))
-READ_PROMPT = ("You are InsightAI Read Mode, an assistive reading tool. "
-               "Read all visible text accurately in its original language and order. "
-               "Do not invent missing or unclear text. If there is no legible text, say NO_TEXT. "
-               "Return only the reading, without introductory commentary.")
-ASK_PROMPT = ("You are InsightAI Ask Mode, assisting a person with visual impairment. "
-              "Answer the user's question based only on the provided image. "
-              "Be concise, clear and specific. If something is unclear or not visible, say so. "
-              "Do not invent details or assert distances you cannot measure.")
+READ_PROMPT = (
+    "You are a text reader for visually impaired users.\n"
+    "Read the visible text in the image from TOP to BOTTOM, line by line.\n"
+    "Start from the first line at the top and move down one line at a time.\n"
+    "Do NOT jump to the bottom. Do NOT skip lines.\n"
+    "Rules:\n"
+    "- Output each line ONCE in the exact order it appears top to bottom.\n"
+    "- Do NOT repeat any word or sentence you have already output.\n"
+    "- Complete every sentence you start — do NOT stop mid-sentence.\n"
+    "- Output the visible text only — no descriptions, explanations, introductions, or commentary.\n"
+    "- Separate each line with a period.\n"
+    "- If no text is visible, output exactly: NO_TEXT"
+)
+ASK_PROMPT = (
+    "Answer the user's visual question directly. "
+    "Prefer ONE short sentence; use at most TWO short sentences only when necessary. "
+    "Answer only what was asked. "
+    "Do not describe unrelated parts of the image. "
+    "Do not explain your reasoning. "
+    "Do not add introductions such as 'The image shows' unless the question requires it. "
+    "Do not add extra context, suggestions, or commentary. "
+    "If the answer is uncertain, say so briefly."
+)
 
 @app.get('/health')
 def health():
@@ -56,7 +71,8 @@ def analyze(mode, frame, question=''):
         messages=[{'role':'user','content':[
             {'type':'text','text':prompt},
             {'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+encoded}},
-        ]}], max_completion_tokens=500, temperature=0,
+        ]}], max_completion_tokens=256 if mode == 'read' else 64,
+temperature=0,
     )
     return (response.choices[0].message.content or '').strip()
 
