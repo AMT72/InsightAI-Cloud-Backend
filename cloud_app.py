@@ -13,6 +13,8 @@ from groq import Groq
 from PIL import Image
 
 app = Flask(__name__)
+from guide_reasoner import guide_bp
+app.register_blueprint(guide_bp)
 sock = Sock(app)
 logging.basicConfig(level=logging.INFO)
 MODEL = os.getenv('GROQ_MODEL', 'qwen/qwen3.8-27b')
