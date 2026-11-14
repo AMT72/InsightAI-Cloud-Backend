@@ -1,29 +1,50 @@
+
 import os
-import json
-import base64
+import logging
+
 from flask import Blueprint, request, jsonify
-from anthropic import Anthropic
+from openai import OpenAI
 
 guide_bp = Blueprint("guide_bp", __name__)
 
-from openai import OpenAI
-
-client = OpenAI(
-    api_key=os.environ["OPENROUTER_API_KEY"],
-    base_url="https://openrouter.ai/api/v1",
-)
-
 MODEL = "anthropic/claude-sonnet-4"
 
-GUIDE_SYSTEM_PROMPT = """
 
-You are a real-time voice navigation assistant for a blind user.
+def proximity_word(value):
+    if value >= 0.85:
+        return "very close"
+    if value >= 0.65:
+        return "close"
+    if value >= 0.40:
+        return "nearby"
+    return "far"
 
-Goal: {mem['user_goal']}
-Previous guidance: {mem['previous_guidance']}
-Recent context: {mem['recent_context']}
-Important landmarks: {mem['key_landmarks']}
-Detected objects: {object_summary}
+
+def build_guide_prompt(scene, memory):
+    objects = [
+        (
+            obj.get("label", "Generic Obstacle"),
+            proximity_word(float(obj.get("proximity") or 0))
+        )
+        for obj in scene.get("objects", [])
+    ]
+
+    free_space = float(scene.get("freeSpaceRatio") or 0)
+
+    path_state = (
+        "clear" if free_space >= 0.70
+        else "partly blocked" if free_space >= 0.40
+        else "blocked"
+    )
+
+    # Original InsightAI glasses prompt
+    prompt = f"""You are a real-time voice navigation assistant for a blind user.
+
+Goal: {memory.get('user_goal', '')}
+Previous guidance: {memory.get('previous_guidance')}
+Recent context: {memory.get('recent_context')}
+Important landmarks: {memory.get('key_landmarks')}
+Detected objects: {objects}
 Path state: {path_state}
 
 OUTPUT RULES:
@@ -44,105 +65,84 @@ Good examples:
 "Continue straight."
 "Door ahead. Keep left."
 
-Return only the final spoken instruction.
+Return only the final spoken instruction."""
 
-"""
-
-def build_guide_user_prompt(spatial_data, memory=None):
-    memory = memory or {}
-
-    prompt = f"""
-Navigation state:
-{json.dumps(spatial_data, ensure_ascii=False)}
-
-Memory:
-{json.dumps(memory, ensure_ascii=False)}
-
-Return only one short navigation instruction.
-"""
-    return prompt.strip()
+    return prompt
 
 
-def call_claude_guide(image_b64, spatial_data, memory=None):
-    if not ANTHROPIC_API_KEY:
-        raise RuntimeError("ANTHROPIC_API_KEY is missing")
-
-    user_prompt = build_guide_user_prompt(spatial_data, memory)
-
-    content = [
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/jpeg",
-                "data": image_b64
-            }
-        },
-        {
-            "type": "text",
-            "text": user_prompt
-        }
-    ]
-
-    response = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=60,
-        temperature=0.2,
-        system=GUIDE_SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": content
-            }
-        ]
-    )
-
-    text = ""
-    if response.content:
-        for block in response.content:
-            if getattr(block, "type", "") == "text":
-                text += block.text
-
-    text = (text or "").strip()
-
-    if not text:
-        text = "Move carefully forward."
-
-    return text
-
-
-@guide_bp.route("/guide/reason", methods=["POST"])
+@guide_bp.post("/guide/reason")
 def guide_reason():
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify(error="Expected JSON object"), 400
+
+    frame = data.get("frame")
+    scene = data.get("scene") or {}
+    memory = data.get("memory") or {}
+
+    if not isinstance(frame, str) or not frame.startswith(
+        "data:image/jpeg;base64,"
+    ):
+        return jsonify(error="Missing JPEG image"), 400
+
+    if not isinstance(scene, dict) or not isinstance(memory, dict):
+        return jsonify(error="Invalid scene or memory"), 400
+
+    api_key = os.getenv("OPENROUTER_API_KEY")
+
+    if not api_key:
+        return jsonify(error="OpenRouter key not configured"), 503
+
     try:
-        data = request.get_json(force=True)
+        prompt = build_guide_prompt(scene, memory)
 
-        image_b64 = data.get("frame", "")
-        spatial_data = data.get("scene", {})
-        memory = data.get("memory", {})
-
-        if not image_b64:
-            return jsonify({"error": "frame is required"}), 400
-
-        # إذا الصورة جاية بصيغة data URL
-        if image_b64.startswith("data:image"):
-            image_b64 = image_b64.split(",", 1)[1]
-
-        guide_text = call_claude_guide(
-            image_b64=image_b64,
-            spatial_data=spatial_data,
-            memory=memory
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            timeout=55.0,
+            max_retries=0,
         )
 
-        print(f"CLAUDE GUIDE: {guide_text}")
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt,
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": frame,
+                            },
+                        },
+                    ],
+                }
+            ],
+            max_tokens=60,
+        )
 
-        return jsonify({
-            "ok": True,
-            "text": guide_text
-        })
+        answer = (
+            response.choices[0].message.content or ""
+        ).strip()
 
-    except Exception as e:
-        print(f"CLAUDE GUIDE ERROR: {e}")
-        return jsonify({
-            "ok": False,
-            "error": str(e)
-        }), 500
+        if not answer:
+            raise ValueError("Empty model response")
+
+        print("CLAUDE GUIDE:", answer, flush=True)
+
+        return jsonify(
+            text=answer,
+            model=MODEL,
+        )
+
+    except Exception:
+        logging.exception("Claude Guide reasoning failed")
+
+        return jsonify(
+            error="Claude Guide reasoning unavailable"
+        ), 502
