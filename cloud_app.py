@@ -11,10 +11,10 @@ from flask import Flask, jsonify, request
 from flask_sock import Sock
 from groq import Groq
 from PIL import Image
-
-app = Flask(__name__)
 from guide_reasoner import guide_bp
+app = Flask(__name__)
 app.register_blueprint(guide_bp)
+
 sock = Sock(app)
 logging.basicConfig(level=logging.INFO)
 MODEL = os.getenv('GROQ_MODEL', 'qwen/qwen3.8-27b')
