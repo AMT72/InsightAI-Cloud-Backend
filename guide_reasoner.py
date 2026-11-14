@@ -10,7 +10,7 @@ guide_bp = Blueprint("guide_bp", __name__)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 # مودل Claude
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4")
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
