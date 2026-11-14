@@ -1,11 +1,11 @@
 
 import os
-import requests
+from groq import Groq
 from flask import Blueprint, request, jsonify
 
 guide_bp = Blueprint("guide_reasoner", __name__)
 
-MODEL = "qwen/qwen3.8-27b"
+MODEL = os.getenv('GROQ_MODEL', 'qwen/qwen3.8-27b')
 
 
 def proximity_word(value):
@@ -29,8 +29,8 @@ def guide_reason():
         return jsonify(error="Missing JPEG image"), 400
 
     api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        return jsonify(error="OpenRouter key not configured"), 503
+if not api_key:
+    return jsonify(error="Groq key not configured"), 503
 
     objects = [
         (obj.get("label", "Generic Obstacle"),
@@ -75,27 +75,26 @@ Good examples:
 Return only the final spoken instruction."""
 
     try:
-        response = requests.post(
-            ""https://api.groq.com/openai/v1/chat/completions",",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": MODEL,
-                "max_tokens": 60,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": frame}},
-                    ],
-                }],
-            },
-            timeout=25,
-        )
-        response.raise_for_status()
-        answer = response.json()["choices"][0]["message"]["content"]
+        response = Groq(
+    api_key=os.environ["GROQ_API_KEY"],
+    timeout=55
+).chat.completions.create(
+    model=MODEL,
+    messages=[{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": prompt},
+            {
+                "type": "image_url",
+                "image_url": {"url": frame}
+            }
+        ]
+    }],
+    max_completion_tokens=60,
+    temperature=0
+)
+
+answer = (response.choices[0].message.content or "").strip()
 
         if not isinstance(answer, str) or not answer.strip():
             raise ValueError("Empty model response")
