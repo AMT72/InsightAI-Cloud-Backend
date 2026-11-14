@@ -6,13 +6,14 @@ from anthropic import Anthropic
 
 guide_bp = Blueprint("guide_bp", __name__)
 
-# استخدم مفتاح Claude
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+from openai import OpenAI
 
-# مودل Claude
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+client = OpenAI(
+    api_key=os.environ["OPENROUTER_API_KEY"],
+    base_url="https://openrouter.ai/api/v1",
+)
 
-client = Anthropic(api_key=ANTHROPIC_API_KEY)
+MODEL = "anthropic/claude-sonnet-4"
 
 GUIDE_SYSTEM_PROMPT = """
 You are the navigation reasoning engine for InsightAI, an assistive system for visually impaired users.
@@ -111,8 +112,8 @@ def guide_reason():
     try:
         data = request.get_json(force=True)
 
-        image_b64 = data.get("image_base64", "")
-        spatial_data = data.get("spatial_data", {})
+        image_b64 = data.get("frame", "")
+spatial_data = data.get("scene", {})
         memory = data.get("memory", {})
 
         if not image_b64:
