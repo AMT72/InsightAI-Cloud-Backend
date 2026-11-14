@@ -5,7 +5,7 @@ from flask import Blueprint, request, jsonify
 
 guide_bp = Blueprint("guide_reasoner", __name__)
 
-MODEL = os.getenv('GROQ_MODEL', 'qwen/qwen3.8-27b')
+MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
 
 
 def proximity_word(value):
@@ -25,20 +25,26 @@ def guide_reason():
     scene = data.get("scene") or {}
     memory = data.get("memory") or {}
 
-    if not frame or not frame.startswith("data:image/jpeg;base64,"):
+    if not isinstance(frame, str) or not frame.startswith(
+        "data:image/jpeg;base64,"
+    ):
         return jsonify(error="Missing JPEG image"), 400
 
     api_key = os.getenv("GROQ_API_KEY")
-if not api_key:
-    return jsonify(error="Groq key not configured"), 503
+
+    if not api_key:
+        return jsonify(error="Groq key not configured"), 503
 
     objects = [
-        (obj.get("label", "Generic Obstacle"),
-         proximity_word(float(obj.get("proximity", 0))))
+        (
+            obj.get("label", "Generic Obstacle"),
+            proximity_word(float(obj.get("proximity", 0)))
+        )
         for obj in scene.get("objects", [])
     ]
 
     free_space = float(scene.get("freeSpaceRatio", 0))
+
     path_state = (
         "clear" if free_space >= 0.70
         else "partly blocked" if free_space >= 0.40
@@ -76,31 +82,45 @@ Return only the final spoken instruction."""
 
     try:
         response = Groq(
-    api_key=os.environ["GROQ_API_KEY"],
-    timeout=55
-).chat.completions.create(
-    model=MODEL,
-    messages=[{
-        "role": "user",
-        "content": [
-            {"type": "text", "text": prompt},
-            {
-                "type": "image_url",
-                "image_url": {"url": frame}
-            }
-        ]
-    }],
-    max_completion_tokens=60,
-    temperature=0
-)
+            api_key=api_key,
+            timeout=55
+        ).chat.completions.create(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": frame
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_completion_tokens=60,
+            temperature=0
+        )
 
-answer = (response.choices[0].message.content or "").strip()
+        answer = (
+            response.choices[0].message.content or ""
+        ).strip()
 
-        if not isinstance(answer, str) or not answer.strip():
+        if not answer:
             raise ValueError("Empty model response")
 
-        return jsonify(text=answer.strip(), model=MODEL)
+        return jsonify(
+            text=answer,
+            model=MODEL
+        )
 
     except Exception as exc:
         print("Guide Qwen error:", exc)
-        return jsonify(error="Guide reasoning unavailable"), 502
+        return jsonify(
+            error="Guide reasoning unavailable"
+        ), 502
