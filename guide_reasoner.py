@@ -117,11 +117,11 @@ def guide_reason():
         data = request.get_json(force=True)
 
         image_b64 = data.get("frame", "")
-spatial_data = data.get("scene", {})
+        spatial_data = data.get("scene", {})
         memory = data.get("memory", {})
 
         if not image_b64:
-            return jsonify({"error": "image_base64 is required"}), 400
+            return jsonify({"error": "frame is required"}), 400
 
         # إذا الصورة جاية بصيغة data URL
         if image_b64.startswith("data:image"):
