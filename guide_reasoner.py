@@ -28,7 +28,7 @@ def guide_reason():
     if not frame or not frame.startswith("data:image/jpeg;base64,"):
         return jsonify(error="Missing JPEG image"), 400
 
-    api_key = os.getenv("OPENROUTER_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         return jsonify(error="OpenRouter key not configured"), 503
 
@@ -76,7 +76,7 @@ Return only the final spoken instruction."""
 
     try:
         response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            ""https://api.groq.com/openai/v1/chat/completions",",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
