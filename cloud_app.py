@@ -23,19 +23,36 @@ sock = Sock(app)
 logging.basicConfig(level=logging.INFO)
 MODEL = os.getenv('GROQ_MODEL', 'qwen/qwen3.8-27b')
 MAX_IMAGE_SIDE = int(os.getenv('MAX_IMAGE_SIDE', '1024'))
+
 READ_PROMPT = (
-    "You are a text reader for visually impaired users.\n"
-    "Read the visible text in the image from TOP to BOTTOM, line by line.\n"
-    "Start from the first line at the top and move down one line at a time.\n"
-    "Do NOT jump to the bottom. Do NOT skip lines.\n"
-    "Rules:\n"
-    "- Output each line ONCE in the exact order it appears top to bottom.\n"
-    "- Do NOT repeat any word or sentence you have already output.\n"
-    "- Complete every sentence you start — do NOT stop mid-sentence.\n"
-    "- Output the visible text only — no descriptions, explanations, introductions, or commentary.\n"
-    "- Separate each line with a period.\n"
-    "- If no text is visible, output exactly: NO_TEXT"
+    "You are a precise text-reading assistant for "
+    "visually impaired users.\n"
+
+    "Your job is to read ONLY the text requested "
+    "by the user from the provided image.\n"
+
+    "STRICT RULES:\n"
+    "1. Follow the user's reading instruction precisely.\n"
+    "2. If the user asks for a title, return ONLY the title.\n"
+    "3. If the user asks for an author, return ONLY the author's name.\n"
+    "4. If the user asks for a company name, return ONLY that name.\n"
+    "5. If the user asks for a specific paragraph, "
+    "read ONLY that paragraph.\n"
+    "6. If the user requests all text or simply says "
+    "'Read this', read all clearly visible text "
+    "in natural reading order.\n"
+    "7. Never repeat text unnecessarily.\n"
+    "8. Preserve the original words and language.\n"
+    "9. Do not explain, summarize, translate, "
+    "or describe the document.\n"
+    "10. Do not add introductions or conclusions.\n"
+    "11. Never invent text that is not visible.\n"
+    "12. If the requested text is unclear or absent, "
+    "say: I cannot read that clearly.\n"
+
+    "Return ONLY the requested text.\n"
 )
+
 ASK_PROMPT = (
     "Answer the user's visual question directly. "
     "Prefer ONE short sentence; use at most TWO short sentences only when necessary. "
@@ -71,16 +88,71 @@ def analyze(mode, frame, question=''):
         buffer = io.BytesIO()
         image.save(buffer,format='JPEG',quality=80)
     encoded = base64.b64encode(buffer.getvalue()).decode('ascii')
-    prompt = READ_PROMPT if mode == 'read' else ASK_PROMPT + '\nUser question: ' + (question or 'Describe what is visible.')
-    response = Groq(api_key=os.environ['GROQ_API_KEY'],timeout=55).chat.completions.create(
+    
+    if mode == 'read':
+        instruction = (
+            question.strip()
+            if question and question.strip()
+            else 'Read this'
+        )
+
+        prompt = (
+            READ_PROMPT
+            + "\nUser reading instruction: "
+            + instruction
+        )
+
+        full_reading = any(
+            phrase in instruction.lower()
+            for phrase in (
+                'read all',
+                'read everything',
+                'read the whole',
+                'read the entire',
+                'read this',
+                'read the page'
+            )
+        )
+
+        token_limit = 1024 if full_reading else 192
+
+    else:
+        prompt = (
+            ASK_PROMPT
+            + "\nUser question: "
+            + (question.strip() or 'What is visible?')
+            + "\nRespond directly without repeating the question."
+        )
+
+        token_limit = 128
+
+    response = Groq(
+        api_key=os.environ['GROQ_API_KEY'],
+        timeout=55
+    ).chat.completions.create(
         model=MODEL,
-        messages=[{'role':'user','content':[
-            {'type':'text','text':prompt},
-            {'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+encoded}},
-        ]}], max_completion_tokens=256 if mode == 'read' else 64,
-temperature=0,
+        messages=[
+            {
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': prompt},
+                    {
+                        'type': 'image_url',
+                        'image_url': {
+                            'url': 'data:image/jpeg;base64,' + encoded
+                        }
+                    },
+                ]
+            }
+        ],
+        max_completion_tokens=token_limit,
+        temperature=0,
     )
-    return (response.choices[0].message.content or '').strip()
+
+    return (
+        response.choices[0].message.content or ''
+    ).strip()
+
 
 
 @app.post('/analyze')
